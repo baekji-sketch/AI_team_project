@@ -19,11 +19,14 @@ if "api_key" not in st.session_state:
     st.session_state.api_key = ""  # 사용자 입력 API 키 저장
 if "category_choice" not in st.session_state:
     st.session_state.category_choice = "전체"
+if "delivery_choice" not in st.session_state:
+    st.session_state.delivery_choice = "전체"
 
 SPICY_OPTIONS = ["안매움", "살짝 매움", "보통", "매움"]
 HUNGER_OPTIONS = ["가벼움", "조금 배고픔", "보통", "배고픔", "엄청 배고픔"]
 PRICE_OPTIONS = ["저렴함", "보통", "조금 비쌈", "비쌈", "고급"]
 CATEGORY_OPTIONS = ["전체", "식사", "음료", "간식"]
+DELIVERY_OPTIONS = ["전체", "배달 가능", "매장 전용"]
 
 # ------------------------------------------
 # 채팅 피드백을 해석해서 필터에 반영하는 도우미 함수
@@ -101,6 +104,16 @@ def detect_food_type_preference(feedback):
     if any(keyword in lower for keyword in snack_keywords):
         return "snack"
     return None
+
+
+def is_delivery_menu(menu):
+    if menu.get("delivery") is not None:
+        return menu["delivery"]
+    lower = f"{menu['name']} {menu['desc']}".lower()
+    delivery_keywords = [
+        "치킨", "피자", "버거", "떡볶이", "김밥", "도시락", "배달", "라면", "짜장", "짬뽕", "우동", "돈까스", "햄버거", "샌드위치", "핫도그", "감자튀김", "깁밥", "중국집", "분식", "치즈볼", "소떡소떡"
+    ]
+    return any(word in lower for word in delivery_keywords)
 
 
 def classify_menu_category(menu):
@@ -246,12 +259,19 @@ with st.sidebar:
             CATEGORY_OPTIONS,
             index=CATEGORY_OPTIONS.index(st.session_state.category_choice),
         )
+        delivery_choice = st.radio(
+            "🚚 배달 여부 선택",
+            DELIVERY_OPTIONS,
+            index=DELIVERY_OPTIONS.index(st.session_state.delivery_choice),
+        )
         
         # 폼 제출 버튼
         submit_button = st.form_submit_button("🎯 이 조건으로 추천받기")
 
     if category_choice != st.session_state.category_choice:
         st.session_state.category_choice = category_choice
+    if delivery_choice != st.session_state.delivery_choice:
+        st.session_state.delivery_choice = delivery_choice
 
     if not st.session_state.api_key:
         st.info("API 키를 입력하면 외부 AI/메뉴 연동 시 활용 시 활용할 수 있습니다.")
@@ -338,6 +358,15 @@ if submit_button or user_chat:
         selected_type = None
         strict_selection = False
 
+    if delivery_choice != "전체":
+        delivery_flag = delivery_choice == "배달 가능"
+        if delivery_flag:
+            matched_menus = [m for m in matched_menus if is_delivery_menu(m)]
+        else:
+            matched_menus = [m for m in matched_menus if not is_delivery_menu(m)]
+    else:
+        delivery_flag = None
+
     context = detect_meeting_context(st.session_state.feedback_text or feedback_message or user_message)
     type_preference = selected_type or detect_food_type_preference(st.session_state.feedback_text or feedback_message or user_message)
     if matched_menus:
@@ -375,6 +404,13 @@ if submit_button or user_chat:
         elif type_preference == "snack":
             type_note = "사용자 요청에 따라 간식류 메뉴를 우선 추천합니다."
 
+    delivery_note = ""
+    if delivery_choice != "전체" and matched_menus:
+        if delivery_choice == "배달 가능":
+            delivery_note = "배달 가능한 메뉴만 추천했습니다."
+        else:
+            delivery_note = "매장 전용 메뉴만 추천했습니다."
+
     # 새 추천 요청 시마다 다른 메뉴를 보여주기 위해 최종 후보를 구성합니다.
     if len(matched_menus) < 5:
         all_other_menus = [m for m in MENU_DB if m not in matched_menus]
@@ -394,9 +430,8 @@ if submit_button or user_chat:
         preferred_first = [m for m in matched_menus if classify_menu_category(m) == type_preference]
         others = [m for m in matched_menus if classify_menu_category(m) != type_preference]
         matched_menus = preferred_first + others
-        final_recommendation = matched_menus[:min(5, len(matched_menus))]
-    else:
-        final_recommendation = random.sample(matched_menus, min(5, len(matched_menus)))
+
+    final_recommendation = random.sample(matched_menus, min(5, len(matched_menus))) if matched_menus else []
     response_text = generate_persona_response(
         final_recommendation,
         context,
@@ -415,6 +450,8 @@ if submit_button or user_chat:
         response_text += f"*{recommendation_note}*\n\n"
     if type_note:
         response_text += f"*{type_note}*\n\n"
+    if delivery_note:
+        response_text += f"*{delivery_note}*\n\n"
     if style_note:
         response_text += f"*{style_note}*\n\n"
     if st.session_state.feedback:
