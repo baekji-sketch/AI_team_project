@@ -11,8 +11,94 @@ if "messages" not in st.session_state:
 if "feedback" not in st.session_state:
     st.session_state.feedback = ""  # 현재 저장된 사용자 피드백 상태
 
+if "feedback_text" not in st.session_state:
+    st.session_state.feedback_text = ""  # 채팅으로 남긴 피드백 저장
+
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""  # 사용자 입력 API 키 저장
+
+SPICY_OPTIONS = ["안매움", "살짝 매움", "보통", "매움"]
+HUNGER_OPTIONS = ["가벼움", "조금 배고픔", "보통", "배고픔", "엄청 배고픔"]
+PRICE_OPTIONS = ["저렴함", "보통", "조금 비쌈", "비쌈", "고급"]
+
+# ------------------------------------------
+# 채팅 피드백을 해석해서 필터에 반영하는 도우미 함수
+# ------------------------------------------
+def _shift_option(value, options, amount):
+    try:
+        idx = options.index(value)
+    except ValueError:
+        idx = 0
+    idx = min(max(idx + amount, 0), len(options) - 1)
+    return options[idx]
+
+
+def apply_feedback_to_filters(feedback, spicy_level, hunger_level, price_level):
+    lower = feedback.lower()
+    spicy_up = ["매워", "더 맵", "매운", "얼얼", "매콤", "더 강", "강하게", "불닭", "화끈"]
+    spicy_down = ["안매워", "맵지", "순하게", "순한", "부담스러", "덜 매", "순한 맛", "매운 거 안"]
+    hunger_up = ["허기", "배고파", "배고픔", "더 배", "배가 고파", "양이 적", "모자라", "더 먹고 싶"]
+    hunger_down = ["포만", "배불", "배부", "배불러", "많이 못", "적당", "충분"]
+    price_down = ["비싸", "가격", "부담", "고가", "비용", "비용 부담", "가격대가 높", "가격 부담"]
+    price_up = ["고급", "조금 비쌈", "비쌈", "프리미엄", "특별", "고급스", "럭셔리"]
+    cheap = ["싼", "저렴", "알뜰", "가성비", "가볍게", "저렴하게"]
+
+    if any(word in lower for word in spicy_up):
+        spicy_level = _shift_option(spicy_level, SPICY_OPTIONS, 1)
+    if any(word in lower for word in spicy_down):
+        spicy_level = _shift_option(spicy_level, SPICY_OPTIONS, -1)
+
+    if any(word in lower for word in hunger_up):
+        hunger_level = _shift_option(hunger_level, HUNGER_OPTIONS, 1)
+    if any(word in lower for word in hunger_down):
+        hunger_level = _shift_option(hunger_level, HUNGER_OPTIONS, -1)
+
+    if any(word in lower for word in price_down) and "저렴" not in lower:
+        price_level = _shift_option(price_level, PRICE_OPTIONS, -1)
+    if any(word in lower for word in price_up) and "싼" not in lower:
+        price_level = _shift_option(price_level, PRICE_OPTIONS, 1)
+    if any(word in lower for word in cheap) and "비싼" not in lower:
+        price_level = _shift_option(price_level, PRICE_OPTIONS, -1)
+
+    return spicy_level, hunger_level, price_level
+
+
+def is_negative_feedback(feedback):
+    lower = feedback.lower()
+    negative_keywords = ["별로", "아쉬워", "싫", "불만", "최악", "다시", "다른", "안좋", "못", "아니", "변경"]
+    return any(keyword in lower for keyword in negative_keywords)
+
+
+def detect_style_preferences(feedback):
+    lower = feedback.lower()
+    return {
+        "youth": any(keyword in lower for keyword in ["젊", "힙", "트렌디", "인싸", "MZ", "요즘", "밀레니얼", "Z세대", "젊은 세대", "젊은이"]),
+        "sweet": any(keyword in lower for keyword in ["달달", "단맛", "디저트", "케이크", "초코", "달콤", "사탕", "꿀", "시럽", "마카롱", "빙수", "와플", "팬케이크"]),
+        "fresh": any(keyword in lower for keyword in ["상큼", "산뜻", "시트러스", "레몬", "자몽", "청포도", "유자", "샐러드", "프레시", "톡 쏘", "상쾌"]),
+    }
+
+
+def style_score(menu, style_prefs):
+    text = f"{menu['name']} {menu['desc']}".lower()
+    score = 0
+    if style_prefs.get("youth"):
+        youth_keywords = ["버거", "피자", "떡볶이", "치킨", "와플", "스무디", "샌드위치", "케이크", "크로플", "마카롱", "빙수", "타코", "브런치", "프리미엄"]
+        if any(keyword in text for keyword in youth_keywords):
+            score += 2
+    if style_prefs.get("sweet"):
+        sweet_keywords = ["달콤", "달달", "케이크", "초코", "시럽", "허니", "마카롱", "빙수", "와플", "푸딩", "파르페", "쿠키", "타르트", "브라우니"]
+        if any(keyword in text for keyword in sweet_keywords):
+            score += 2
+    if style_prefs.get("fresh"):
+        fresh_keywords = ["상큼", "샐러드", "유자", "레몬", "자몽", "청포도", "시트러스", "오렌지", "연어", "싱그러운", "아보카도", "에이드", "스무디"]
+        if any(keyword in text for keyword in fresh_keywords):
+            score += 2
+    return score
+
+
+def is_recommend_request(message):
+    lower = message.lower()
+    return any(keyword in lower for keyword in ["추천해줘", "추천", "recommend", "menu", "메뉴"])
 
 # 임시 메뉴 데이터베이스 (이름, 맵기, 허기, 가격, 설명/유래)
 
@@ -247,7 +333,41 @@ MENU_DB = [
     {"name": "싱하 맥주", "spicy": "안매움", "hunger": "가벼움", "price": "보통", "desc": "시원하고 깔끔한 타이 라거 맥주로 식사와 함께 즐기기 좋습니다."},
     {"name": "딸기 요거트 스무디", "spicy": "안매움", "hunger": "가벼움", "price": "저렴함", "desc": "딸기와 요거트를 갈아 상큼하게 마실 수 있는 스무디입니다."},
     {"name": "프리미엄 모히또", "spicy": "안매움", "hunger": "가벼움", "price": "비쌈", "desc": "민트와 라임이 상큼하게 어우러진 고급스러운 모히또입니다."},
-    {"name": "수플레 수박 빙수", "spicy": "안매움", "hunger": "보통", "price": "비쌈", "desc": "부드러운 수플레 케이크와 시원한 수박이 함께 나오는 여름 디저트입니다."}
+    {"name": "수플레 수박 빙수", "spicy": "안매움", "hunger": "보통", "price": "비쌈", "desc": "부드러운 수플레 케이크와 시원한 수박이 함께 나오는 여름 디저트입니다."},
+    {"name": "트러플 프렌치 토스트", "spicy": "안매움", "hunger": "보통", "price": "고급", "desc": "트러플 향과 메이플 시럽이 어우러진 고급 브런치 메뉴입니다."},
+    {"name": "골드 피자", "spicy": "안매움", "hunger": "배고픔", "price": "고급", "desc": "크리스피한 도우 위에 트러플 오일과 골드 플레이크를 더한 고급 피자입니다."},
+    {"name": "바질 페스토 파스타", "spicy": "안매움", "hunger": "보통", "price": "조금 비쌈", "desc": "향긋한 바질 페스토와 파르메산 치즈가 어우러진 파스타입니다."},
+    {"name": "매콤 닭갈비 볶음밥", "spicy": "매움", "hunger": "배고픔", "price": "보통", "desc": "달콤 매콤한 닭갈비 양념으로 볶은 볶음밥입니다."},
+    {"name": "블루베리 치즈 타르트", "spicy": "안매움", "hunger": "가벼움", "price": "조금 비쌈", "desc": "상큼한 블루베리와 부드러운 치즈 커스터드가 조화를 이루는 타르트입니다."},
+    {"name": "크림 베이컨 리조또", "spicy": "안매움", "hunger": "배고픔", "price": "조금 비쌈", "desc": "크리미한 베이컨 풍미가 가득한 리조또입니다."},
+    {"name": "스파이시 타코 플래터", "spicy": "매움", "hunger": "배고픔", "price": "보통", "desc": "매콤 소스와 신선한 야채를 곁들인 타코 세트입니다."},
+    {"name": "코코넛 쉬림프", "spicy": "안매움", "hunger": "보통", "price": "비쌈", "desc": "바삭한 코코넛 튀김에 달콤한 칠리 소스를 곁들인 새우 요리입니다."},
+    {"name": "에그 베이컨 베이글", "spicy": "안매움", "hunger": "보통", "price": "저렴함", "desc": "따뜻한 베이글에 계란과 베이컨을 넣은 든든한 샌드위치입니다."},
+    {"name": "아보카도 퀴노아 볼", "spicy": "안매움", "hunger": "가벼움", "price": "조금 비쌈", "desc": "아보카도와 퀴노아, 채소가 들어간 건강식 볼입니다."},
+    {"name": "허니 머스타드 치킨", "spicy": "안매움", "hunger": "보통", "price": "보통", "desc": "달콤한 허니 머스타드 소스에 버무린 치킨 요리입니다."},
+    {"name": "매운 불닭 볶음면", "spicy": "매움", "hunger": "배고픔", "price": "저렴함", "desc": "강렬한 매운 소스와 쫄깃한 면발이 특징인 볶음면입니다."},
+    {"name": "트러플 감자튀김", "spicy": "안매움", "hunger": "가벼움", "price": "조금 비쌈", "desc": "트러플 오일을 뿌린 바삭한 감자튀김입니다."},
+    {"name": "치즈 폭탄 떡볶이", "spicy": "매움", "hunger": "배고픔", "price": "저렴함", "desc": "치즈가 듬뿍 들어간 매콤 떡볶이입니다."},
+    {"name": "라임 쉬림프 샐러드", "spicy": "안매움", "hunger": "가벼움", "price": "보통", "desc": "새콤한 라임 드레싱의 새우 샐러드입니다."},
+    {"name": "블랙 페퍼 스테이크", "spicy": "살짝 매움", "hunger": "배고픔", "price": "고급", "desc": "진한 블랙페퍼 소스를 곁들인 스테이크입니다."},
+    {"name": "크림 시금치 파스타", "spicy": "안매움", "hunger": "보통", "price": "조금 비쌈", "desc": "부드러운 크림 소스와 시금치가 들어간 파스타입니다."},
+    {"name": "허니 갈릭 피자", "spicy": "안매움", "hunger": "보통", "price": "보통", "desc": "달콤한 허니 갈릭 소스가 가미된 피자입니다."},
+    {"name": "갈릭 버터 쉬림프 파스타", "spicy": "안매움", "hunger": "배고픔", "price": "조금 비쌈", "desc": "버터 향 가득한 새우 파스타입니다."},
+    {"name": "달콤 간장 치킨", "spicy": "살짝 매움", "hunger": "배고픔", "price": "보통", "desc": "달콤한 간장 양념으로 맛을 낸 치킨 요리입니다."},
+    {"name": "매콤 사천탕수육", "spicy": "매움", "hunger": "배고픔", "price": "보통", "desc": "매콤한 사천 소스를 곁들인 탕수육입니다."},
+    {"name": "트러플 달걀 샌드위치", "spicy": "안매움", "hunger": "가벼움", "price": "조금 비쌈", "desc": "트러플 소스를 곁들인 부드러운 에그 샌드위치입니다."},
+    {"name": "오렌지 치킨", "spicy": "안매움", "hunger": "보통", "price": "보통", "desc": "상큼한 오렌지 소스로 버무린 치킨 요리입니다."},
+    {"name": "스모크 연어 샐러드", "spicy": "안매움", "hunger": "보통", "price": "비쌈", "desc": "훈제 연어와 신선한 채소가 어우러진 샐러드입니다."},
+    {"name": "크림 마늘 새우", "spicy": "안매움", "hunger": "배고픔", "price": "조금 비쌈", "desc": "마늘 크림 소스에 버무린 새우 요리입니다."},
+    {"name": "버팔로 윙", "spicy": "매움", "hunger": "배고픔", "price": "보통", "desc": "매콤하고 새콤한 소스로 맛을 낸 치킨 윙입니다."},
+    {"name": "라즈베리 치즈 케이크", "spicy": "안매움", "hunger": "가벼움", "price": "조금 비쌈", "desc": "달콤한 라즈베리와 크림치즈의 조화가 좋은 케이크입니다."},
+    {"name": "허니 레몬 티", "spicy": "안매움", "hunger": "가벼움", "price": "저렴함", "desc": "달콤한 허니와 상큼한 레몬을 더한 따뜻한 차입니다."},
+    {"name": "카라멜 마카롱", "spicy": "안매움", "hunger": "가벼움", "price": "저렴함", "desc": "카라멜 향이 달콤하게 퍼지는 프랑스식 과자입니다."},
+    {"name": "허브 치킨 볼", "spicy": "안매움", "hunger": "보통", "price": "저렴함", "desc": "허브향이 가득한 건강한 치킨 한 입 메뉴입니다."},
+    {"name": "시나몬 애플 팬케이크", "spicy": "안매움", "hunger": "보통", "price": "저렴함", "desc": "시나몬과 사과가 어우러진 달콤한 팬케이크입니다."},
+    {"name": "바베큐 포크 샌드", "spicy": "살짝 매움", "hunger": "배고픔", "price": "보통", "desc": "바베큐 소스로 조리한 돼지고기를 샌드한 메뉴입니다."},
+    {"name": "리코타 치즈 샐러드", "spicy": "안매움", "hunger": "가벼움", "price": "조금 비쌈", "desc": "리코타 치즈와 채소가 어우러진 상큼한 샐러드입니다."},
+    {"name": "로스트 포테이토", "spicy": "안매움", "hunger": "가벼움", "price": "저렴함", "desc": "허브와 함께 구워낸 바삭한 감자 요리입니다."}
 ]
 # ==========================================
 # 2. 사이드바 - 사용자 조건 입력 폼 (강의안 7p)
@@ -265,10 +385,6 @@ with st.sidebar:
     if api_key != st.session_state.api_key:
         st.session_state.api_key = api_key
 
-    SPICY_OPTIONS = ["안매움", "살짝 매움", "보통", "매움"]
-    HUNGER_OPTIONS = ["가벼움", "조금 배고픔", "보통", "배고픔", "엄청 배고픔"]
-    PRICE_OPTIONS = ["저렴함", "보통", "조금 비쌈", "비쌈", "고급"]
-
     with st.form("filter_form"):
         spicy_level = st.radio("🌶️ 맵기 단계 선택", SPICY_OPTIONS)
         hunger_level = st.select_slider("🤤 허기 정도 선택", options=HUNGER_OPTIONS)
@@ -278,7 +394,7 @@ with st.sidebar:
         submit_button = st.form_submit_button("🎯 이 조건으로 추천받기")
 
     if not st.session_state.api_key:
-        st.info("API 키를 입력하면 외부 AI/메뉴 연동 시 활용할 수 있습니다.")
+        st.info("API 키를 입력하면 외부 AI/메뉴 연동 시 활용 시 활용할 수 있습니다.")
 
     st.write("---")
     
@@ -306,44 +422,85 @@ for msg in st.session_state.messages:
 user_chat = st.chat_input("추천을 원하시면 '메뉴 추천해줘'를 입력하세요.")
 
 if submit_button or user_chat:
-    
-    # 어떤 방식으로 요청했든 사람이 알아보기 쉽게 프롬프트 텍스트 구성
+    user_message = ""
     prompt_text = f"⚙️ **[선택 조건]** 맵기: {spicy_level} | 허기: {hunger_level} | 가격: {price_level}"
-    
-    # 1) 유저가 보낸 메시지 화면에 띄우고 세션에 저장
-    st.chat_message("user").markdown(prompt_text)
-    st.session_state.messages.append({"role": "user", "content": prompt_text})
-    
-    # 2) [조건 매칭 알고리즘] DB에서 유저 조건과 맞는 메뉴 골라내기
+    feedback_message = ""
+    feedback_adjusted = False
+    recommendation_note = ""
+
+    if user_chat:
+        user_message = user_chat.strip()
+        st.chat_message("user").markdown(user_message)
+        st.session_state.messages.append({"role": "user", "content": user_message})
+
+        if is_recommend_request(user_message):
+            if any(keyword in user_message.lower() for keyword in ["별로", "아쉬워", "싫어", "불만", "다시", "다른"]) or any(detect_style_preferences(user_message).values()):
+                st.session_state.feedback_text = user_message
+            prompt_text = f"{prompt_text} \n\n💬 추가 요청: {user_message}"
+        else:
+            st.session_state.feedback_text = user_message
+            feedback_message = user_message
+            prompt_text = f"💬 사용자 피드백: {user_message}"
+    else:
+        st.chat_message("user").markdown(prompt_text)
+        st.session_state.messages.append({"role": "user", "content": prompt_text})
+
+    if st.session_state.feedback_text:
+        new_spicy, new_hunger, new_price = apply_feedback_to_filters(
+            st.session_state.feedback_text,
+            spicy_level,
+            hunger_level,
+            price_level,
+        )
+        if (new_spicy, new_hunger, new_price) != (spicy_level, hunger_level, price_level):
+            feedback_adjusted = True
+            recommendation_note = (
+                f"사용자 피드백을 반영하여 필터를 다음과 같이 조정했습니다: "
+                f"맵기={new_spicy}, 허기={new_hunger}, 가격={new_price}."
+            )
+        spicy_level, hunger_level, price_level = new_spicy, new_hunger, new_price
+
     matched_menus = [
-        m for m in MENU_DB 
+        m for m in MENU_DB
         if m["spicy"] == spicy_level and m["hunger"] == hunger_level and m["price"] == price_level
     ]
-    
-    # [아이디어 반영] 이전 만족도 피드백이 '💩(최악)'이었다면, 매칭된 결과 중 무작위 셔플을 통해 변화 유도
-    if st.session_state.feedback == "최악":
+
+    style_prefs = detect_style_preferences(st.session_state.feedback_text or feedback_message)
+    style_note = ""
+    if any(style_prefs.values()) and matched_menus:
+        scored_menus = [(style_score(m, style_prefs), m) for m in matched_menus]
+        scored_menus.sort(key=lambda item: item[0], reverse=True)
+        recommended = [m for score, m in scored_menus if score > 0]
+        if len(recommended) < 5:
+            recommended += [m for score, m in scored_menus if score == 0]
+        matched_menus = recommended
+        style_labels = [key for key, value in style_prefs.items() if value]
+        if style_labels:
+            style_note = f"사용자 요청에 따라 {' / '.join(style_labels)} 스타일 메뉴를 우선 추천합니다."
+
+    if st.session_state.feedback == "최악" or (st.session_state.feedback_text and is_negative_feedback(st.session_state.feedback_text)):
         random.shuffle(matched_menus)
-    
-    # 만약 매칭된 음식이 5개가 안 된다면, 전체 DB에서 아무거나 가져와 5개 채우기
+
     if len(matched_menus) < 5:
         all_other_menus = [m for m in MENU_DB if m not in matched_menus]
-        # 샘플링할 개수 지정 (부족한 만큼만)
         needed = 5 - len(matched_menus)
         matched_menus += random.sample(all_other_menus, min(needed, len(all_other_menus)))
-        
+
     final_recommendation = matched_menus[:5]
-    
-    # 3) 챗봇의 답변 텍스트 꾸미기 (설명 및 유래 포함 기능)
     response_text = "### 💡 당신을 위한 맞춤 메뉴 5가지 추천!\n\n"
     for idx, menu in enumerate(final_recommendation, 1):
         response_text += f"**{idx}. {menu['name']}**\n"
         response_text += f"- 🔍 **설명/유래:** {menu['desc']}\n\n"
-        
-    # 만약 피드백이 존재했다면 안내 문구 슬쩍 얹어주기
+
+    if feedback_message:
+        response_text += f"*사용자 피드백을 반영해 다시 추천드렸습니다: \"{feedback_message}\"*\n\n"
+    if feedback_adjusted:
+        response_text += f"*{recommendation_note}*\n\n"
+    if style_note:
+        response_text += f"*{style_note}*\n\n"
     if st.session_state.feedback:
         response_text += f"*(이전 추천에 대해 **[{st.session_state.feedback}]** 피드백을 주셔서 이를 고려해 구성했습니다!)*"
-        
-    # 4) 챗봇의 응답 화면에 띄우고 세션에 저장
+
     with st.chat_message("assistant"):
         st.markdown(response_text)
     st.session_state.messages.append({"role": "assistant", "content": response_text})
