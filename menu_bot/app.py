@@ -351,13 +351,24 @@ if submit_button or user_chat:
         elif type_preference == "snack":
             type_note = "사용자 요청에 따라 간식류 메뉴를 우선 추천합니다."
 
-    # 새 추천 요청 시마다 다른 메뉴를 보여주기 위해 최종 후보에서 무작위로 5개를 선택합니다.
+    # 새 추천 요청 시마다 다른 메뉴를 보여주기 위해 최종 후보를 구성합니다.
     if len(matched_menus) < 5:
         all_other_menus = [m for m in MENU_DB if m not in matched_menus]
         needed = 5 - len(matched_menus)
-        matched_menus += random.sample(all_other_menus, min(needed, len(all_other_menus)))
+        if type_preference:
+            preferred_menus = [m for m in all_other_menus if classify_menu_category(m) == type_preference]
+            added = preferred_menus[:needed]
+            matched_menus += added
+            needed -= len(added)
+            if needed > 0:
+                matched_menus += random.sample(all_other_menus, min(needed, len(all_other_menus)))
+        else:
+            matched_menus += random.sample(all_other_menus, min(needed, len(all_other_menus)))
 
-    final_recommendation = random.sample(matched_menus, min(5, len(matched_menus)))
+    if type_preference:
+        final_recommendation = matched_menus[:min(5, len(matched_menus))]
+    else:
+        final_recommendation = random.sample(matched_menus, min(5, len(matched_menus)))
     response_text = generate_persona_response(
         final_recommendation,
         context,
