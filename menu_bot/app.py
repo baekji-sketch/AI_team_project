@@ -21,6 +21,10 @@ if "category_choice" not in st.session_state:
     st.session_state.category_choice = "전체"
 if "delivery_choice" not in st.session_state:
     st.session_state.delivery_choice = "전체"
+if "recent_recommendations" not in st.session_state:
+    st.session_state.recent_recommendations = []
+if "last_filter_signature" not in st.session_state:
+    st.session_state.last_filter_signature = None
 
 SPICY_OPTIONS = ["안매움", "살짝 매움", "보통", "매움"]
 HUNGER_OPTIONS = ["가벼움", "조금 배고픔", "보통", "배고픔", "엄청 배고픔"]
@@ -125,6 +129,17 @@ def classify_menu_category(menu):
     return "meal"
 
 
+def dedupe_menus(menus):
+    seen = set()
+    unique = []
+    for menu in menus:
+        name = menu.get("name")
+        if name not in seen:
+            seen.add(name)
+            unique.append(menu)
+    return unique
+
+
 def style_score(menu, style_prefs):
     text = f"{menu['name']} {menu['desc']}".lower()
     score = 0
@@ -212,12 +227,12 @@ def generate_persona_response(menus, context, style_note, feedback_message, feed
 
     response_text = f"{intro}\n\n"
     response_text += "### 추천 메뉴 2~3가지와 이유\n"
-    for idx, menu in enumerate(top3, 1):
+    for menu in top3:
         reason = f"{menu['desc']}"
         texture = describe_menu_flavor(menu)
-        response_text += f"**{idx}. {menu['name']}**\n"
-        response_text += f"- 이유: {reason}\n"
-        response_text += f"- 맛/식감: {texture}\n\n"
+        response_text += f"- **{menu['name']}**\n"
+        response_text += f"  - 이유: {reason}\n"
+        response_text += f"  - 맛/식감: {texture}\n\n"
 
     if style_note:
         response_text += f"*{style_note}*\n\n"
@@ -340,10 +355,23 @@ if submit_button or user_chat:
             )
         spicy_level, hunger_level, price_level = new_spicy, new_hunger, new_price
 
+    filter_signature = (
+        spicy_level,
+        hunger_level,
+        price_level,
+        category_choice,
+        delivery_choice,
+        st.session_state.feedback_text.strip(),
+    )
+    if filter_signature != st.session_state.last_filter_signature:
+        st.session_state.recent_recommendations = []
+        st.session_state.last_filter_signature = filter_signature
+
     matched_menus = [
         m for m in MENU_DB
         if m["spicy"] == spicy_level and m["hunger"] == hunger_level and m["price"] == price_level
     ]
+    matched_menus = dedupe_menus(matched_menus)
 
     category_map = {
         "식사": "meal",
@@ -426,12 +454,25 @@ if submit_button or user_chat:
         elif not strict_selection:
             matched_menus += random.sample(all_other_menus, min(needed, len(all_other_menus)))
 
+    matched_menus = dedupe_menus(matched_menus)
     if type_preference:
         preferred_first = [m for m in matched_menus if classify_menu_category(m) == type_preference]
         others = [m for m in matched_menus if classify_menu_category(m) != type_preference]
         matched_menus = preferred_first + others
 
-    final_recommendation = random.sample(matched_menus, min(5, len(matched_menus))) if matched_menus else []
+    candidate_menus = [
+        m for m in matched_menus
+        if m["name"] not in st.session_state.recent_recommendations
+    ]
+    if not candidate_menus:
+        candidate_menus = matched_menus
+
+    final_recommendation = random.sample(candidate_menus, min(5, len(candidate_menus))) if candidate_menus else []
+    if final_recommendation:
+        st.session_state.recent_recommendations = (
+            st.session_state.recent_recommendations + [m["name"] for m in final_recommendation]
+        )[-15:]
+
     response_text = generate_persona_response(
         final_recommendation,
         context,
