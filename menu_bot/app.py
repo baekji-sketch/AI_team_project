@@ -79,6 +79,36 @@ def detect_style_preferences(feedback):
     }
 
 
+def detect_food_type_preference(feedback):
+    lower = feedback.lower()
+    meal_keywords = [
+        "식사", "점심", "저녁", "아침", "밥", "국", "면", "덮밥", "국밥", "찌개", "정식", "스테이크", "파스타", "리조또", "피자", "치킨", "한식", "양식", "중식", "일식", "아시안", "볶음", "구이", "탕", "전골"
+    ]
+    drink_keywords = [
+        "음료", "커피", "티", "에이드", "스무디", "주스", "라떼", "아메리카노", "콜드브루", "모히또", "버블티", "차", "맥주", "칵테일", "밀크티", "아인슈페너"
+    ]
+    snack_keywords = [
+        "간식", "디저트", "케이크", "쿠키", "도넛", "빵", "와플", "마카롱", "빙수", "떡", "타르트", "푸딩", "파르페", "아포가토", "스콘", "브라우니", "츄러스", "타피오카", "간식", "카페"
+    ]
+
+    if any(keyword in lower for keyword in meal_keywords):
+        return "meal"
+    if any(keyword in lower for keyword in drink_keywords):
+        return "drink"
+    if any(keyword in lower for keyword in snack_keywords):
+        return "snack"
+    return None
+
+
+def classify_menu_category(menu):
+    text = f"{menu['name']} {menu['desc']}".lower()
+    if any(word in text for word in ["커피", "티", "에이드", "스무디", "주스", "라떼", "아메리카노", "콜드브루", "모히또", "버블티", "차", "맥주", "칵테일", "음료"]):
+        return "drink"
+    if any(word in text for word in ["디저트", "케이크", "쿠키", "도넛", "빵", "와플", "마카롱", "빙수", "떡", "타르트", "푸딩", "파르페", "아포가토", "스콘", "브라우니", "츄러스", "타피오카", "간식"]):
+        return "snack"
+    return "meal"
+
+
 def style_score(menu, style_prefs):
     text = f"{menu['name']} {menu['desc']}".lower()
     score = 0
@@ -285,11 +315,23 @@ if submit_button or user_chat:
     ]
 
     context = detect_meeting_context(st.session_state.feedback_text or feedback_message or user_message)
-    if matched_menus and context != "general":
-        scored_menus = [
-            (style_score(m, detect_style_preferences(st.session_state.feedback_text or feedback_message)) + menu_context_score(m, context), m)
-            for m in matched_menus
-        ]
+    type_preference = detect_food_type_preference(st.session_state.feedback_text or feedback_message or user_message)
+    if matched_menus:
+        scored_menus = []
+        for m in matched_menus:
+            score = style_score(m, detect_style_preferences(st.session_state.feedback_text or feedback_message))
+            score += menu_context_score(m, context)
+            if type_preference:
+                menu_type = classify_menu_category(m)
+                if menu_type == type_preference:
+                    score += 3
+                elif type_preference == "meal" and menu_type == "snack":
+                    score -= 2
+                elif type_preference == "drink" and menu_type != "drink":
+                    score -= 1
+                elif type_preference == "snack" and menu_type == "meal":
+                    score -= 1
+            scored_menus.append((score, m))
         scored_menus.sort(key=lambda item: item[0], reverse=True)
         matched_menus = [m for score, m in scored_menus]
 
@@ -299,6 +341,15 @@ if submit_button or user_chat:
         style_labels = [key for key, value in style_prefs.items() if value]
         if style_labels:
             style_note = f"사용자 요청에 따라 {' / '.join(style_labels)} 스타일 메뉴를 우선 추천합니다."
+
+    type_note = ""
+    if type_preference and matched_menus:
+        if type_preference == "meal":
+            type_note = "사용자 요청에 따라 식사류 메뉴를 우선 추천합니다."
+        elif type_preference == "drink":
+            type_note = "사용자 요청에 따라 음료류 메뉴를 우선 추천합니다."
+        elif type_preference == "snack":
+            type_note = "사용자 요청에 따라 간식류 메뉴를 우선 추천합니다."
 
     # 새 추천 요청 시마다 다른 메뉴를 보여주기 위해 최종 후보에서 무작위로 5개를 선택합니다.
     if len(matched_menus) < 5:
@@ -323,6 +374,8 @@ if submit_button or user_chat:
         response_text += f"*사용자 피드백을 반영해 다시 추천드렸습니다: \"{feedback_message}\"*\n\n"
     if feedback_adjusted:
         response_text += f"*{recommendation_note}*\n\n"
+    if type_note:
+        response_text += f"*{type_note}*\n\n"
     if style_note:
         response_text += f"*{style_note}*\n\n"
     if st.session_state.feedback:
