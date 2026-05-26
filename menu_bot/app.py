@@ -25,6 +25,14 @@ if "recent_recommendations" not in st.session_state:
     st.session_state.recent_recommendations = []
 if "last_filter_signature" not in st.session_state:
     st.session_state.last_filter_signature = None
+if "pending_feedback_text" not in st.session_state:
+    st.session_state.pending_feedback_text = ""
+if "has_recommended" not in st.session_state:
+    st.session_state.has_recommended = False
+if "recent_recommendations" not in st.session_state:
+    st.session_state.recent_recommendations = []
+if "last_filter_signature" not in st.session_state:
+    st.session_state.last_filter_signature = None
 
 SPICY_OPTIONS = ["안매움", "살짝 매움", "보통", "매움"]
 HUNGER_OPTIONS = ["가벼움", "조금 배고픔", "보통", "배고픔", "엄청 배고픔"]
@@ -330,10 +338,16 @@ if submit_button or user_chat:
 
         if is_recommend_request(user_message):
             if any(keyword in user_message.lower() for keyword in ["별로", "아쉬워", "싫어", "불만", "다시", "다른"]) or any(detect_style_preferences(user_message).values()):
-                st.session_state.feedback_text = user_message
+                if st.session_state.has_recommended:
+                    st.session_state.feedback_text = user_message
+                else:
+                    st.session_state.pending_feedback_text = user_message
             prompt_text = f"{prompt_text} \n\n💬 추가 요청: {user_message}"
         else:
-            st.session_state.feedback_text = user_message
+            if st.session_state.has_recommended:
+                st.session_state.feedback_text = user_message
+            else:
+                st.session_state.pending_feedback_text = user_message
             feedback_message = user_message
             prompt_text = f"💬 사용자 피드백: {user_message}"
     else:
@@ -366,6 +380,9 @@ if submit_button or user_chat:
     if filter_signature != st.session_state.last_filter_signature:
         st.session_state.recent_recommendations = []
         st.session_state.last_filter_signature = filter_signature
+        st.session_state.has_recommended = False
+        st.session_state.pending_feedback_text = ""
+        st.session_state.feedback_text = ""
 
     matched_menus = [
         m for m in MENU_DB
@@ -460,18 +477,26 @@ if submit_button or user_chat:
         others = [m for m in matched_menus if classify_menu_category(m) != type_preference]
         matched_menus = preferred_first + others
 
-    candidate_menus = [
+    unseen_menus = [
         m for m in matched_menus
         if m["name"] not in st.session_state.recent_recommendations
     ]
-    if not candidate_menus:
-        candidate_menus = matched_menus
 
-    final_recommendation = random.sample(candidate_menus, min(5, len(candidate_menus))) if candidate_menus else []
+    if unseen_menus:
+        final_recommendation = random.sample(unseen_menus, min(5, len(unseen_menus)))
+    else:
+        final_recommendation = random.sample(matched_menus, min(5, len(matched_menus))) if matched_menus else []
+        st.session_state.recent_recommendations = []
+
     if final_recommendation:
         st.session_state.recent_recommendations = (
             st.session_state.recent_recommendations + [m["name"] for m in final_recommendation]
         )[-15:]
+        if not st.session_state.has_recommended:
+            st.session_state.has_recommended = True
+            if st.session_state.pending_feedback_text and not st.session_state.feedback_text:
+                st.session_state.feedback_text = st.session_state.pending_feedback_text
+                st.session_state.pending_feedback_text = ""
 
     response_text = generate_persona_response(
         final_recommendation,
