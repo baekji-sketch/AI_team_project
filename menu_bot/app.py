@@ -17,11 +17,13 @@ if "feedback_text" not in st.session_state:
 
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""  # 사용자 입력 API 키 저장
+if "category_choice" not in st.session_state:
+    st.session_state.category_choice = "전체"
 
 SPICY_OPTIONS = ["안매움", "살짝 매움", "보통", "매움"]
 HUNGER_OPTIONS = ["가벼움", "조금 배고픔", "보통", "배고픔", "엄청 배고픔"]
 PRICE_OPTIONS = ["저렴함", "보통", "조금 비쌈", "비쌈", "고급"]
-CATEGORY_OPTIONS = ["전체", "식사류", "음료류", "간식류"]
+CATEGORY_OPTIONS = ["전체", "식사", "음료", "간식"]
 
 # ------------------------------------------
 # 채팅 피드백을 해석해서 필터에 반영하는 도우미 함수
@@ -239,10 +241,17 @@ with st.sidebar:
         spicy_level = st.radio("🌶️ 맵기 단계 선택", SPICY_OPTIONS)
         hunger_level = st.select_slider("🤤 허기 정도 선택", options=HUNGER_OPTIONS)
         price_level = st.select_slider("💵 가격대 선택", options=PRICE_OPTIONS)
-        category_choice = st.radio("🍽️ 메뉴 유형 선택", CATEGORY_OPTIONS)
+        category_choice = st.radio(
+            "🍽️ 메뉴 유형 선택",
+            CATEGORY_OPTIONS,
+            index=CATEGORY_OPTIONS.index(st.session_state.category_choice),
+        )
         
         # 폼 제출 버튼
         submit_button = st.form_submit_button("🎯 이 조건으로 추천받기")
+
+    if category_choice != st.session_state.category_choice:
+        st.session_state.category_choice = category_choice
 
     if not st.session_state.api_key:
         st.info("API 키를 입력하면 외부 AI/메뉴 연동 시 활용 시 활용할 수 있습니다.")
@@ -317,15 +326,17 @@ if submit_button or user_chat:
     ]
 
     category_map = {
-        "식사류": "meal",
-        "음료류": "drink",
-        "간식류": "snack",
+        "식사": "meal",
+        "음료": "drink",
+        "간식": "snack",
     }
     if category_choice != "전체":
         selected_type = category_map[category_choice]
         matched_menus = [m for m in matched_menus if classify_menu_category(m) == selected_type]
+        strict_selection = True
     else:
         selected_type = None
+        strict_selection = False
 
     context = detect_meeting_context(st.session_state.feedback_text or feedback_message or user_message)
     type_preference = selected_type or detect_food_type_preference(st.session_state.feedback_text or feedback_message or user_message)
@@ -373,12 +384,16 @@ if submit_button or user_chat:
             added = preferred_menus[:needed]
             matched_menus += added
             needed -= len(added)
-            if needed > 0:
-                matched_menus += random.sample(all_other_menus, min(needed, len(all_other_menus)))
-        else:
+            if needed > 0 and not strict_selection:
+                remaining = [m for m in all_other_menus if m not in added]
+                matched_menus += random.sample(remaining, min(needed, len(remaining)))
+        elif not strict_selection:
             matched_menus += random.sample(all_other_menus, min(needed, len(all_other_menus)))
 
     if type_preference:
+        preferred_first = [m for m in matched_menus if classify_menu_category(m) == type_preference]
+        others = [m for m in matched_menus if classify_menu_category(m) != type_preference]
+        matched_menus = preferred_first + others
         final_recommendation = matched_menus[:min(5, len(matched_menus))]
     else:
         final_recommendation = random.sample(matched_menus, min(5, len(matched_menus)))
