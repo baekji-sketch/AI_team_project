@@ -21,18 +21,14 @@ if "category_choice" not in st.session_state:
     st.session_state.category_choice = "전체"
 if "delivery_choice" not in st.session_state:
     st.session_state.delivery_choice = "전체"
-if "recent_recommendations" not in st.session_state:
-    st.session_state.recent_recommendations = []
+if "recommended_names" not in st.session_state:
+    st.session_state.recommended_names = []
 if "last_filter_signature" not in st.session_state:
     st.session_state.last_filter_signature = None
 if "pending_feedback_text" not in st.session_state:
     st.session_state.pending_feedback_text = ""
 if "has_recommended" not in st.session_state:
     st.session_state.has_recommended = False
-if "recent_recommendations" not in st.session_state:
-    st.session_state.recent_recommendations = []
-if "last_filter_signature" not in st.session_state:
-    st.session_state.last_filter_signature = None
 
 SPICY_OPTIONS = ["안매움", "살짝 매움", "보통", "매움"]
 HUNGER_OPTIONS = ["가벼움", "조금 배고픔", "보통", "배고픔", "엄청 배고픔"]
@@ -378,7 +374,7 @@ if submit_button or user_chat:
         st.session_state.feedback_text.strip(),
     )
     if filter_signature != st.session_state.last_filter_signature:
-        st.session_state.recent_recommendations = []
+        st.session_state.recommended_names = []
         st.session_state.last_filter_signature = filter_signature
         st.session_state.has_recommended = False
         st.session_state.pending_feedback_text = ""
@@ -458,7 +454,10 @@ if submit_button or user_chat:
 
     # 새 추천 요청 시마다 다른 메뉴를 보여주기 위해 최종 후보를 구성합니다.
     if len(matched_menus) < 5:
-        all_other_menus = [m for m in MENU_DB if m not in matched_menus]
+        all_other_menus = [
+            m for m in MENU_DB
+            if m not in matched_menus and m["name"] not in st.session_state.recommended_names
+        ]
         needed = 5 - len(matched_menus)
         if type_preference:
             preferred_menus = [m for m in all_other_menus if classify_menu_category(m) == type_preference]
@@ -479,19 +478,16 @@ if submit_button or user_chat:
 
     unseen_menus = [
         m for m in matched_menus
-        if m["name"] not in st.session_state.recent_recommendations
+        if m["name"] not in st.session_state.recommended_names
     ]
 
     if unseen_menus:
         final_recommendation = random.sample(unseen_menus, min(5, len(unseen_menus)))
     else:
         final_recommendation = random.sample(matched_menus, min(5, len(matched_menus))) if matched_menus else []
-        st.session_state.recent_recommendations = []
 
     if final_recommendation:
-        st.session_state.recent_recommendations = (
-            st.session_state.recent_recommendations + [m["name"] for m in final_recommendation]
-        )[-15:]
+        st.session_state.recommended_names += [m["name"] for m in final_recommendation]
         if not st.session_state.has_recommended:
             st.session_state.has_recommended = True
             if st.session_state.pending_feedback_text and not st.session_state.feedback_text:
