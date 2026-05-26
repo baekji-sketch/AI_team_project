@@ -13,7 +13,7 @@ if "feedback" not in st.session_state:
     st.session_state.feedback = ""  # 현재 저장된 사용자 피드백 상태
 
 if "feedback_text" not in st.session_state:
-    st.session_state.feedback_text = ""  # 채팅으로 남긴 피드백 저장
+    st.session_state.feedback_text = ""  
 
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""  # 사용자 입력 API 키 저장
