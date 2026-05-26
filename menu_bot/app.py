@@ -482,8 +482,9 @@ if submit_button or user_chat:
         recommendation_note,
     )
     for idx, menu in enumerate(final_recommendation, 1):
-        response_text += f"**{idx}. {menu['name']}**\n"
-        response_text += f"- 🔍 **설명/유래:** {menu['desc']}\n\n"
+        response_text += f"**{idx}. {menu['name']}**\n\n"
+        response_text += f"- 🔍 **설명/유래:**\n"
+        response_text += f"  {menu['desc']}\n\n"
 
     if feedback_message:
         response_text += f"*사용자 피드백을 반영해 다시 추천드렸습니다: \"{feedback_message}\"*\n\n"
