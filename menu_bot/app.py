@@ -21,6 +21,7 @@ if "api_key" not in st.session_state:
 SPICY_OPTIONS = ["안매움", "살짝 매움", "보통", "매움"]
 HUNGER_OPTIONS = ["가벼움", "조금 배고픔", "보통", "배고픔", "엄청 배고픔"]
 PRICE_OPTIONS = ["저렴함", "보통", "조금 비쌈", "비쌈", "고급"]
+CATEGORY_OPTIONS = ["전체", "식사류", "음료류", "간식류"]
 
 # ------------------------------------------
 # 채팅 피드백을 해석해서 필터에 반영하는 도우미 함수
@@ -238,6 +239,7 @@ with st.sidebar:
         spicy_level = st.radio("🌶️ 맵기 단계 선택", SPICY_OPTIONS)
         hunger_level = st.select_slider("🤤 허기 정도 선택", options=HUNGER_OPTIONS)
         price_level = st.select_slider("💵 가격대 선택", options=PRICE_OPTIONS)
+        category_choice = st.radio("🍽️ 메뉴 유형 선택", CATEGORY_OPTIONS)
         
         # 폼 제출 버튼
         submit_button = st.form_submit_button("🎯 이 조건으로 추천받기")
@@ -314,8 +316,19 @@ if submit_button or user_chat:
         if m["spicy"] == spicy_level and m["hunger"] == hunger_level and m["price"] == price_level
     ]
 
+    category_map = {
+        "식사류": "meal",
+        "음료류": "drink",
+        "간식류": "snack",
+    }
+    if category_choice != "전체":
+        selected_type = category_map[category_choice]
+        matched_menus = [m for m in matched_menus if classify_menu_category(m) == selected_type]
+    else:
+        selected_type = None
+
     context = detect_meeting_context(st.session_state.feedback_text or feedback_message or user_message)
-    type_preference = detect_food_type_preference(st.session_state.feedback_text or feedback_message or user_message)
+    type_preference = selected_type or detect_food_type_preference(st.session_state.feedback_text or feedback_message or user_message)
     if matched_menus:
         scored_menus = []
         for m in matched_menus:
