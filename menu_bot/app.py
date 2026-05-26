@@ -1,6 +1,6 @@
 import streamlit as st
 import random
-from menu_bot.menu_db import MENU_DB
+from menu_db import MENU_DB
 
 # =========================================
 # 1. 세션 상태(Session State) 초기화 (강의안 5p)
